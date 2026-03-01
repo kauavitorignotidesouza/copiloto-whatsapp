@@ -1,6 +1,5 @@
 import { Check, CheckCheck, Clock, AlertCircle, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { MockMessage } from "@/lib/mock-data";
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -23,7 +22,7 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
-export function MessageBubble({ message }: { message: MockMessage }) {
+export function MessageBubble({ message }: { message: { id: string; direction: string; type: string; content: string; status: string; createdAt: Date; isAiGenerated?: boolean } }) {
   const isOutbound = message.direction === "outbound";
 
   return (

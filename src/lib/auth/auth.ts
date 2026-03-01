@@ -1,16 +1,9 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-
-// Demo mode: accepts predefined credentials without DB
-// In production, replace with real DB lookup
-const DEMO_USER = {
-  id: "demo-user-1",
-  name: "Admin",
-  email: "admin@exemplo.com",
-  role: "admin",
-  tenantId: "demo-tenant-1",
-  image: null,
-};
+import { compare } from "bcryptjs";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -22,23 +15,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        // Demo mode: accept any email with password "123456"
-        // or the default demo credentials
-        const email = credentials.email as string;
+        const email = (credentials.email as string).trim().toLowerCase();
         const password = credentials.password as string;
 
-        if (password.length >= 6) {
-          return {
-            id: DEMO_USER.id,
-            name: email.split("@")[0].replace(/[^a-zA-Z]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-            email: email,
-            role: DEMO_USER.role,
-            tenantId: DEMO_USER.tenantId,
-            image: DEMO_USER.image,
-          };
-        }
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
 
-        return null;
+        if (!user || !user.isActive) return null;
+        if (!user.passwordHash) return null;
+
+        const valid = await compare(password, user.passwordHash);
+        if (!valid) return null;
+
+        // Atualiza lastLoginAt (fire-and-forget)
+        db.update(users)
+          .set({ lastLoginAt: new Date() })
+          .where(eq(users.id, user.id))
+          .then(() => {})
+          .catch(() => {});
+
+        return {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          tenantId: user.tenantId,
+          image: user.avatarUrl ?? null,
+        };
       },
     }),
   ],

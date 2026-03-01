@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   MessageSquare,
   Clock,
@@ -23,56 +24,92 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { auth } from "@/lib/auth/auth";
+import { db } from "@/lib/db";
+import { conversations, contacts } from "@/lib/db/schema";
+import { eq, desc, and, count } from "drizzle-orm";
 
-const kpis = [
-  {
-    title: "Conversas Ativas",
-    value: "24",
-    delta: "+12%",
-    deltaType: "positive" as const,
-    icon: MessageSquare,
-  },
-  {
-    title: "Tempo Médio Resposta",
-    value: "3min",
-    delta: "-15%",
-    deltaType: "positive" as const,
-    icon: Clock,
-  },
-  {
-    title: "Taxa de Conversão",
-    value: "32%",
-    delta: "+5%",
-    deltaType: "positive" as const,
-    icon: TrendingUp,
-  },
-  {
-    title: "Novos Leads",
-    value: "48",
-    delta: "+22%",
-    deltaType: "positive" as const,
-    icon: UserPlus,
-  },
-];
+function getInitials(name: string | null): string {
+  if (!name || !name.trim()) return "?";
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
-const recentConversations = [
-  { id: "conv1", name: "Maria Silva", initials: "MS", message: "Oi, vocês têm o vestido floral em M?", time: "3min", unread: 2, status: "open" as const },
-  { id: "conv2", name: "João Santos", initials: "JS", message: "Qual o prazo de entrega pro RJ?", time: "15min", unread: 1, status: "open" as const },
-  { id: "conv3", name: "Ana Oliveira", initials: "AO", message: "Pix enviado! Segue comprovante", time: "45min", unread: 0, status: "waiting" as const },
-  { id: "conv4", name: "Pedro Costa", initials: "PC", message: "Bom dia, vi o anúncio no Instagram", time: "2h", unread: 1, status: "open" as const },
-  { id: "conv5", name: "Camila Ferreira", initials: "CF", message: "Tem desconto pra compra acima de 3?", time: "4h", unread: 0, status: "open" as const },
-];
+function formatTime(date: Date | null): string {
+  if (!date) return "—";
+  const now = new Date();
+  const d = new Date(date);
+  const diffMs = now.getTime() - d.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  const hrs = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+  if (mins < 1) return "agora";
+  if (mins < 60) return `${mins}min`;
+  if (hrs < 24) return `${hrs}h`;
+  return `${days}d`;
+}
 
-const recentActivity = [
-  { icon: ShoppingCart, text: "Maria Silva adicionou Vestido Floral ao carrinho", time: "há 5 min", color: "text-blue-500" },
-  { icon: Bot, text: "Copiloto IA sugeriu resposta para João Santos", time: "há 12 min", color: "text-purple-500" },
-  { icon: CreditCard, text: "Ana Oliveira confirmou pagamento Pix de R$ 349,90", time: "há 45 min", color: "text-emerald-500" },
-  { icon: UserCheck, text: "Novo lead: Pedro Costa via Instagram Ads", time: "há 2h", color: "text-orange-500" },
-  { icon: Bot, text: "Copiloto IA classificou intenção: Compra (92%)", time: "há 2h", color: "text-purple-500" },
-  { icon: CreditCard, text: "Lucas Mendes recebeu pedido #1247", time: "há 8h", color: "text-emerald-500" },
-];
+export default async function DashboardPage() {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
 
-export default function DashboardPage() {
+  const tenantId = (session.user as unknown as { tenantId?: string }).tenantId;
+  if (!tenantId) {
+    return (
+      <div className="p-6">
+        <p className="text-muted-foreground">Sessão inválida. Faça login novamente.</p>
+      </div>
+    );
+  }
+
+  const tenantFilter = eq(conversations.tenantId, tenantId);
+
+  const [conversationsCount] = await db
+    .select({ count: count() })
+    .from(conversations)
+    .where(and(tenantFilter, eq(conversations.status, "open")));
+
+  const [contactsCount] = await db
+    .select({ count: count() })
+    .from(contacts)
+    .where(eq(contacts.tenantId, tenantId));
+
+  const recentConversationsRows = await db
+    .select({
+      id: conversations.id,
+      lastMessagePreview: conversations.lastMessagePreview,
+      lastMessageAt: conversations.lastMessageAt,
+      unreadCount: conversations.unreadCount,
+      status: conversations.status,
+      contactName: contacts.name,
+      contactProfileName: contacts.profileName,
+    })
+    .from(conversations)
+    .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+    .where(tenantFilter)
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(5);
+
+  const activeCount = conversationsCount?.count ?? 0;
+  const leadsCount = contactsCount?.count ?? 0;
+
+  const kpis = [
+    { title: "Conversas Ativas", value: String(activeCount), delta: "—", deltaType: "positive" as const, icon: MessageSquare },
+    { title: "Tempo Médio Resposta", value: "—", delta: "—", deltaType: "positive" as const, icon: Clock },
+    { title: "Taxa de Conversão", value: "—", delta: "—", deltaType: "positive" as const, icon: TrendingUp },
+    { title: "Contatos", value: String(leadsCount), delta: "—", deltaType: "positive" as const, icon: UserPlus },
+  ];
+
+  const recentActivity = [
+    { icon: ShoppingCart, text: "Atividade recente aparecerá aqui", time: "—", color: "text-blue-500" },
+    { icon: Bot, text: "Conecte o WhatsApp e a IA para ver sugestões", time: "—", color: "text-purple-500" },
+  ];
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -82,7 +119,6 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
@@ -97,24 +133,19 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{kpi.value}</div>
-                <div className="flex items-center gap-1 mt-1">
-                  {isPositive ? (
-                    <ArrowUpRight className="size-3 text-emerald-500" />
-                  ) : (
-                    <ArrowDownRight className="size-3 text-red-500" />
-                  )}
-                  <Badge
-                    variant="secondary"
-                    className={
-                      isPositive ? "text-emerald-600" : "text-red-600"
-                    }
-                  >
-                    {kpi.delta}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    vs. mês anterior
-                  </span>
-                </div>
+                {kpi.delta !== "—" && (
+                  <div className="flex items-center gap-1 mt-1">
+                    {isPositive ? (
+                      <ArrowUpRight className="size-3 text-emerald-500" />
+                    ) : (
+                      <ArrowDownRight className="size-3 text-red-500" />
+                    )}
+                    <Badge variant="secondary" className={isPositive ? "text-emerald-600" : "text-red-600"}>
+                      {kpi.delta}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">vs. mês anterior</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
@@ -122,49 +153,51 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
-        {/* Recent Conversations - 3 cols */}
         <Card className="lg:col-span-3">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Conversas Recentes</CardTitle>
-              <CardDescription>
-                Últimas interações com seus clientes
-              </CardDescription>
+              <CardDescription>Últimas interações com seus clientes</CardDescription>
             </div>
             <Button variant="outline" size="sm" asChild>
-              <Link href="/inbox">
-                Ver todas <ChevronRight className="size-4 ml-1" />
-              </Link>
+              <Link href="/inbox">Ver todas <ChevronRight className="size-4 ml-1" /></Link>
             </Button>
           </CardHeader>
           <CardContent className="space-y-1">
-            {recentConversations.map((conv) => (
-              <Link
-                key={conv.id}
-                href={`/inbox/${conv.id}`}
-                className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-accent transition-colors"
-              >
-                <Avatar className="size-9 shrink-0">
-                  <AvatarFallback className="text-xs">{conv.initials}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{conv.name}</span>
-                    <span className="text-xs text-muted-foreground">{conv.time}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate">{conv.message}</p>
-                </div>
-                {conv.unread > 0 && (
-                  <Badge className="shrink-0 text-xs rounded-full size-5 flex items-center justify-center p-0">
-                    {conv.unread}
-                  </Badge>
-                )}
-              </Link>
-            ))}
+            {recentConversationsRows.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4">Nenhuma conversa ainda. Conecte o WhatsApp para começar.</p>
+            ) : (
+              recentConversationsRows.map((row) => {
+                const name = row.contactName || row.contactProfileName || "Contato";
+                const initials = getInitials(name);
+                return (
+                  <Link
+                    key={row.id}
+                    href={`/inbox/${row.id}`}
+                    className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-accent transition-colors"
+                  >
+                    <Avatar className="size-9 shrink-0">
+                      <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium">{name}</span>
+                        <span className="text-xs text-muted-foreground">{formatTime(row.lastMessageAt)}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{row.lastMessagePreview || "—"}</p>
+                    </div>
+                    {(row.unreadCount ?? 0) > 0 && (
+                      <Badge className="shrink-0 text-xs rounded-full size-5 flex items-center justify-center p-0">
+                        {row.unreadCount}
+                      </Badge>
+                    )}
+                  </Link>
+                );
+              })
+            )}
           </CardContent>
         </Card>
 
-        {/* Activity Feed - 2 cols */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Atividade Recente</CardTitle>

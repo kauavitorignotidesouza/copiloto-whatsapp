@@ -1,38 +1,142 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockMessages } from "@/lib/mock-data";
+import { auth } from "@/lib/auth/auth";
+import { db } from "@/lib/db";
+import { messages, conversations, tenants, contacts } from "@/lib/db/schema";
+import { eq, asc, and } from "drizzle-orm";
+import { sendWhatsAppText } from "@/lib/whatsapp/send-message";
 
-// GET: List messages for a conversation
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-  const messages = mockMessages[id] || [];
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  }
 
-  return NextResponse.json({ messages });
+  const tenantId = (session.user as unknown as { tenantId?: string }).tenantId;
+  if (!tenantId) {
+    return NextResponse.json({ error: "Tenant não encontrado" }, { status: 403 });
+  }
+
+  const { id: conversationId } = await params;
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+    .limit(1);
+
+  if (!conv) {
+    return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+  }
+
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt));
+
+  const list = rows.map((m) => ({
+    id: m.id,
+    conversationId: m.conversationId,
+    direction: m.direction,
+    type: m.type,
+    content: m.content ?? "",
+    status: m.status,
+    createdAt: m.createdAt,
+    isAiGenerated: m.isAiGenerated ?? false,
+  }));
+
+  return NextResponse.json({ messages: list });
 }
 
-// POST: Send a new message
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+  }
+
+  const tenantId = (session.user as unknown as { tenantId?: string }).tenantId;
+  if (!tenantId) {
+    return NextResponse.json({ error: "Tenant não encontrado" }, { status: 403 });
+  }
+
+  const { id: conversationId } = await params;
   const body = await request.json();
+  const content = typeof body.content === "string" ? body.content.trim() : "";
 
-  const newMessage = {
-    id: `m-${Date.now()}`,
-    conversationId: id,
-    direction: "outbound" as const,
-    type: body.type || "text",
-    content: body.content,
-    status: "sent" as const,
-    createdAt: new Date(),
-    isAiGenerated: body.isAiGenerated || false,
-  };
+  if (!content) {
+    return NextResponse.json({ error: "Conteúdo da mensagem é obrigatório" }, { status: 400 });
+  }
 
-  // In production: save to DB, send via WhatsApp Cloud API, emit Socket.io event
-  console.log("[API] Message sent:", newMessage);
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
+    .limit(1);
 
-  return NextResponse.json({ message: newMessage }, { status: 201 });
+  if (!conv) {
+    return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+  }
+
+  const [inserted] = await db
+    .insert(messages)
+    .values({
+      tenantId,
+      conversationId,
+      direction: "outbound",
+      type: (body.type as string) || "text",
+      content,
+      status: "sent",
+      sentById: session.user.id,
+      isAiGenerated: Boolean(body.isAiGenerated),
+    })
+    .returning();
+
+  if (!inserted) {
+    return NextResponse.json({ error: "Erro ao salvar mensagem" }, { status: 500 });
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      lastMessageAt: inserted.createdAt,
+      lastMessagePreview: content.slice(0, 100),
+      unreadCount: 0,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const [contact] = await db.select().from(contacts).where(eq(contacts.id, conv.contactId)).limit(1);
+
+  if (tenant?.whatsappAccessToken && tenant?.whatsappPhoneNumberId && contact?.waId) {
+    sendWhatsAppText(tenant.whatsappPhoneNumberId, tenant.whatsappAccessToken, contact.waId, content)
+      .then((result) => {
+        if (!result.success && result.error) {
+          console.error("[WhatsApp send]", result.error);
+        }
+      })
+      .catch((err) => console.error("[WhatsApp send]", err));
+  }
+
+  return NextResponse.json(
+    {
+      message: {
+        id: inserted.id,
+        conversationId: inserted.conversationId,
+        direction: inserted.direction,
+        type: inserted.type,
+        content: inserted.content,
+        status: inserted.status,
+        createdAt: inserted.createdAt,
+        isAiGenerated: inserted.isAiGenerated ?? false,
+      },
+    },
+    { status: 201 }
+  );
 }

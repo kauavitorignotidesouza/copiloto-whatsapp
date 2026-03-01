@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   Wifi,
@@ -12,12 +12,16 @@ import {
   Eye,
   EyeOff,
   Info,
+  Loader2,
+  Save,
+  QrCode,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Card,
@@ -28,14 +32,62 @@ import {
 } from "@/components/ui/card";
 
 export default function WhatsAppSettingsPage() {
-  const [isConnected] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<"success" | "error" | null>(null);
 
-  const webhookUrl = "https://seu-dominio.com/api/webhooks/whatsapp";
-  const accessToken = "EAABsbCS1iHgBO0vZBZCFJ7kR3mXpNtM9yKlZAHnVzO8G2wP";
-  const verifyToken = "meu_token_verificacao_2024";
+  const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [businessAccountId, setBusinessAccountId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [accessTokenMasked, setAccessTokenMasked] = useState("");
+  const [hasAccessToken, setHasAccessToken] = useState(false);
+
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrData, setQrData] = useState<{
+    available: boolean;
+    message?: string;
+    base64?: string | null;
+    pairingCode?: string | null;
+    error?: string;
+  } | null>(null);
+
+  const [evolutionConnected, setEvolutionConnected] = useState<boolean | null>(null);
+
+  const webhookUrl =
+    (typeof window !== "undefined" ? window.location.origin : "") + "/api/webhooks/whatsapp";
+
+  useEffect(() => {
+    fetch("/api/settings/whatsapp")
+      .then((res) => {
+        if (!res.ok) throw new Error("Erro ao carregar");
+        return res.json();
+      })
+      .then((data) => {
+        setPhoneNumberId(data.whatsappPhoneNumberId ?? "");
+        setBusinessAccountId(data.whatsappBusinessAccountId ?? "");
+        setAccessTokenMasked(data.accessTokenMasked ?? "");
+        setHasAccessToken(Boolean(data.hasAccessToken));
+      })
+      .catch(() => setSaveMessage("error"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const checkEvolution = () => {
+      fetch("/api/settings/whatsapp/evolution-status")
+        .then((res) => res.json())
+        .then((data) => setEvolutionConnected(data.connected === true))
+        .catch(() => setEvolutionConnected(false));
+    };
+    checkEvolution();
+    const id = setInterval(checkEvolution, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const isConnected = Boolean(phoneNumberId.trim() && (accessToken.trim() || hasAccessToken));
 
   function handleCopy(text: string, field: string) {
     navigator.clipboard.writeText(text);
@@ -48,15 +100,86 @@ export default function WhatsAppSettingsPage() {
     setTimeout(() => setIsTesting(false), 2000);
   }
 
+  async function handleSave() {
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const res = await fetch("/api/settings/whatsapp", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          whatsappPhoneNumberId: phoneNumberId.trim() || undefined,
+          whatsappBusinessAccountId: businessAccountId.trim() || undefined,
+          whatsappAccessToken: accessToken.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error("Erro ao salvar");
+      setSaveMessage("success");
+      if (accessToken.trim()) {
+        setHasAccessToken(true);
+        setAccessTokenMasked(accessToken.slice(0, 6) + "••••••" + accessToken.slice(-4));
+        setAccessToken("");
+      }
+    } catch {
+      setSaveMessage("error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleGerarQr() {
+    setQrLoading(true);
+    setQrData(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 18000);
+    try {
+      const res = await fetch("/api/settings/whatsapp/qr", { signal: controller.signal });
+      const data = await res.json();
+      setQrData(data);
+    } catch (e) {
+      const isAbort = e instanceof Error && e.name === "AbortError";
+      setQrData({
+        available: true,
+        error: isAbort
+          ? "Demorou muito. Verifique se a Evolution API está acessível (IP, porta e firewall)."
+          : "Erro ao carregar. Verifique o console do navegador.",
+      });
+    } finally {
+      clearTimeout(timeoutId);
+      setQrLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6 max-w-3xl flex items-center justify-center min-h-[200px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 max-w-3xl space-y-6">
       <div>
         <h1 className="text-2xl font-semibold mb-1">Conexão WhatsApp</h1>
         <p className="text-muted-foreground text-sm">
-          Configure a conexão com a API do WhatsApp Business para enviar e receber mensagens.
+          Escolha como conectar: API Oficial do Meta (número Business) ou conexão por QR (WhatsApp pessoal ou Business app). Cada conta tem seus próprios chats, produtos e CRM.
         </p>
       </div>
 
+      <Tabs defaultValue="api" className="space-y-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="api" className="gap-2">
+            <Phone className="h-4 w-4" />
+            API Oficial (Meta)
+          </TabsTrigger>
+          <TabsTrigger value="qrcode" className="gap-2">
+            <QrCode className="h-4 w-4" />
+            Conexão por QR
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="api" className="space-y-6 mt-0">
       {/* Connection Status */}
       <Card>
         <CardContent className="pt-6">
@@ -93,8 +216,8 @@ export default function WhatsAppSettingsPage() {
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {isConnected
-                    ? "A API do WhatsApp Business está funcionando corretamente."
-                    : "Sem conexão com a API do WhatsApp Business."}
+                    ? "Phone Number ID e Access Token configurados. Configure o webhook no Meta para receber mensagens."
+                    : "Preencha Phone Number ID e Access Token abaixo e salve."}
                 </p>
               </div>
             </div>
@@ -116,7 +239,7 @@ export default function WhatsAppSettingsPage() {
         <CardHeader>
           <CardTitle>Credenciais da API</CardTitle>
           <CardDescription>
-            Credenciais de acesso à API do WhatsApp Business. Mantenha essas informações em sigilo.
+            Dados do app no Meta for Developers. Salve para que o webhook e o envio de mensagens funcionem.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -125,46 +248,52 @@ export default function WhatsAppSettingsPage() {
             <div className="flex gap-2">
               <Input
                 id="phoneNumberId"
-                value="109876543210987"
-                readOnly
-                className="font-mono bg-muted text-muted-foreground"
+                placeholder="Ex: 109876543210987"
+                value={phoneNumberId}
+                onChange={(e) => setPhoneNumberId(e.target.value)}
+                className="font-mono"
               />
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={() => handleCopy("109876543210987", "phoneId")}
-              >
-                {copied === "phoneId" ? (
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
+              {phoneNumberId && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleCopy(phoneNumberId, "phoneId")}
+                >
+                  {copied === "phoneId" ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="businessAccountId">Business Account ID</Label>
+            <Label htmlFor="businessAccountId">Business Account ID (opcional)</Label>
             <div className="flex gap-2">
               <Input
                 id="businessAccountId"
-                value="210987654321098"
-                readOnly
-                className="font-mono bg-muted text-muted-foreground"
+                placeholder="Ex: 210987654321098"
+                value={businessAccountId}
+                onChange={(e) => setBusinessAccountId(e.target.value)}
+                className="font-mono"
               />
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={() => handleCopy("210987654321098", "businessId")}
-              >
-                {copied === "businessId" ? (
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
+              {businessAccountId && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleCopy(businessAccountId, "businessId")}
+                >
+                  {copied === "businessId" ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -173,10 +302,17 @@ export default function WhatsAppSettingsPage() {
             <div className="flex gap-2">
               <Input
                 id="accessToken"
-                value={showToken ? accessToken : "••••••••••••••••••••••••••••••••••••••••"}
-                readOnly
-                className="font-mono bg-muted text-muted-foreground"
+                type={showToken ? "text" : "password"}
+                placeholder={hasAccessToken ? "Deixe em branco para manter o atual" : "Token permanente da API"}
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                className="font-mono"
               />
+              {hasAccessToken && !accessToken && (
+                <span className="text-sm text-muted-foreground self-center shrink-0">
+                  {accessTokenMasked}
+                </span>
+              )}
               <Button
                 variant="outline"
                 size="icon"
@@ -189,44 +325,38 @@ export default function WhatsAppSettingsPage() {
                   <Eye className="h-4 w-4" />
                 )}
               </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={() => handleCopy(accessToken, "accessToken")}
-              >
-                {copied === "accessToken" ? (
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
+              {accessToken && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleCopy(accessToken, "accessToken")}
+                >
+                  {copied === "accessToken" ? (
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="verifyToken">Webhook Verify Token</Label>
-            <div className="flex gap-2">
-              <Input
-                id="verifyToken"
-                value={verifyToken}
-                readOnly
-                className="font-mono bg-muted text-muted-foreground"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                className="shrink-0"
-                onClick={() => handleCopy(verifyToken, "verifyToken")}
-              >
-                {copied === "verifyToken" ? (
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </div>
+          {saveMessage === "success" && (
+            <p className="text-sm text-green-600 dark:text-green-400">Configuração salva com sucesso.</p>
+          )}
+          {saveMessage === "error" && (
+            <p className="text-sm text-destructive">Erro ao carregar ou salvar. Tente novamente.</p>
+          )}
+
+          <Button className="gap-2" onClick={handleSave} disabled={saving}>
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            Salvar configuração
+          </Button>
         </CardContent>
       </Card>
 
@@ -235,10 +365,10 @@ export default function WhatsAppSettingsPage() {
         <CardHeader>
           <CardTitle>Webhook URL</CardTitle>
           <CardDescription>
-            Configure esta URL no painel do Meta Business para receber mensagens.
+            No Meta for Developers → Seu app → WhatsApp → Configuração, defina esta URL como URL de callback e assine o campo &quot;messages&quot;.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex gap-2">
             <Input
               value={webhookUrl}
@@ -258,61 +388,112 @@ export default function WhatsAppSettingsPage() {
               {copied === "webhook" ? "Copiado!" : "Copiar"}
             </Button>
           </div>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>Verify token</AlertTitle>
+            <AlertDescription>
+              No mesmo passo do webhook, defina um &quot;Verify token&quot; (qualquer texto secreto). Depois, no servidor (variável de ambiente <code>WHATSAPP_VERIFY_TOKEN</code> no .env.local ou na Netlify), use o mesmo valor. Assim o Meta consegue validar a URL.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 
-      {/* WhatsApp Business Profile */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Perfil do WhatsApp Business</CardTitle>
-          <CardDescription>
-            Informações do perfil exibidas para seus clientes no WhatsApp.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center h-16 w-16 rounded-full bg-muted border-2 border-dashed border-muted-foreground/25">
-              <Phone className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-medium">Loja Exemplo</p>
-              <p className="text-sm text-muted-foreground">+55 11 99999-1234</p>
-            </div>
-          </div>
-          <Separator />
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="displayName">Nome de exibição</Label>
-              <Input
-                id="displayName"
-                value="Loja Exemplo"
-                readOnly
-                className="bg-muted text-muted-foreground"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="about">Sobre</Label>
-              <Input
-                id="about"
-                value="Sua loja favorita! Atendimento de seg a sex, 9h-18h."
-                readOnly
-                className="bg-muted text-muted-foreground"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Message Limits */}
+      {/* Resumo */}
       <Alert>
-        <Info className="h-4 w-4" />
-        <AlertTitle>Limites de mensagens</AlertTitle>
+        <Phone className="h-4 w-4" />
+        <AlertTitle>Para as conversas aparecerem no Inbox</AlertTitle>
         <AlertDescription>
-          Seu plano atual permite o envio de <strong>1.000 mensagens/dia (Tier 1)</strong>.
-          Para aumentar o limite, entre em contato com o suporte ou melhore a qualidade
-          do seu número no Meta Business.
+          (1) Salve aqui o <strong>Phone Number ID</strong> e o <strong>Access Token</strong> do seu número no Meta. (2) Configure o webhook no Meta com a URL acima e o campo &quot;messages&quot; assinado. (3) Defina <strong>WHATSAPP_VERIFY_TOKEN</strong> no servidor igual ao Verify token do Meta. Quando alguém enviar mensagem para seu número WhatsApp Business, a conversa surgirá no Inbox.
         </AlertDescription>
       </Alert>
+        </TabsContent>
+
+        <TabsContent value="qrcode" className="space-y-6 mt-0">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Smartphone className="h-5 w-5" />
+                    Conectar por QR Code
+                  </CardTitle>
+                  <CardDescription>
+                    Conecte seu WhatsApp (pessoal ou Business app) escaneando o QR code com o celular. Os chats, produtos e CRM desta conta ficam separados das outras.
+                  </CardDescription>
+                </div>
+                {evolutionConnected !== null && (
+                  <Badge
+                    variant={evolutionConnected ? "default" : "secondary"}
+                    className={cn(
+                      "shrink-0",
+                      evolutionConnected
+                        ? "bg-green-600 hover:bg-green-600"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    {evolutionConnected ? "Conectado" : "Desconectado"}
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {qrData?.available === false && qrData.message && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>{qrData.message}</AlertDescription>
+                </Alert>
+              )}
+              {qrData?.error && (
+                <Alert variant="destructive">
+                  <AlertDescription className="break-words">{qrData.error}</AlertDescription>
+                </Alert>
+              )}
+              {qrData?.base64 && (
+                <div className="flex flex-col items-center gap-3">
+                  <img
+                    src={qrData.base64}
+                    alt="QR Code WhatsApp"
+                    className="rounded-lg border bg-white p-2 max-w-[280px]"
+                  />
+                  <p className="text-sm text-muted-foreground text-center">
+                    Abra o WhatsApp no celular → Aparelhos conectados → Conectar um aparelho e escaneie o QR acima.
+                  </p>
+                </div>
+              )}
+              {qrData?.pairingCode && !qrData?.base64 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Código de pareamento:</p>
+                  <p className="font-mono text-lg tracking-wider bg-muted px-4 py-2 rounded-md inline-block">
+                    {qrData.pairingCode}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    No WhatsApp: Aparelhos conectados → Conectar um aparelho → Vincular com número de telefone e digite o código acima.
+                  </p>
+                </div>
+              )}
+              <Button
+                onClick={handleGerarQr}
+                disabled={qrLoading}
+                className="gap-2"
+              >
+                {qrLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <QrCode className="h-4 w-4" />
+                )}
+                {qrLoading ? "Gerando QR..." : "Gerar QR Code"}
+              </Button>
+            </CardContent>
+          </Card>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>Para os chats aparecerem no Inbox</AlertTitle>
+            <AlertDescription>
+              O painel precisa receber as mensagens da Evolution API. Se você estiver rodando localmente (localhost), configure um túnel (ex.: ngrok) e defina <strong>EVOLUTION_WEBHOOK_BASE</strong> no .env.local com a URL pública. Se o painel estiver na Netlify, defina <strong>EVOLUTION_WEBHOOK_BASE</strong> nas variáveis de ambiente com a URL do site (ex.: https://seu-site.netlify.app). Assim, ao gerar o QR, o webhook é configurado e as conversas passam a aparecer aqui.
+            </AlertDescription>
+          </Alert>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

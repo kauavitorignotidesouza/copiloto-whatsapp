@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Building2, Users, MessageCircle, Brain } from "lucide-react";
+import { Building2, Users, MessageCircle, Brain, Info } from "lucide-react";
 
 const settingsNav = [
   { href: "/settings", label: "Geral", icon: Building2 },
@@ -39,6 +39,12 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             </Link>
           );
         })}
+        <div className="mt-4 pt-4 border-t border-border">
+          <p className="flex items-start gap-2 text-xs text-muted-foreground px-2">
+            <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            Cada conta tem seus próprios chats, produtos, CRM e configurações.
+          </p>
+        </div>
       </nav>
       <div className="flex-1 overflow-auto">{children}</div>
     </div>
