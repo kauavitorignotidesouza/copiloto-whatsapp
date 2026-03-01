@@ -1,10 +1,10 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 import { conversations } from "./conversations";
 import { users } from "./users";
 
-export const messages = sqliteTable("messages", {
+export const messages = pgTable("messages", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -17,50 +17,37 @@ export const messages = sqliteTable("messages", {
     .notNull()
     .references(() => conversations.id, { onDelete: "cascade" }),
 
-  waMessageId: text("wa_message_id").unique(), // WhatsApp message ID (wamid.xxx)
+  waMessageId: text("wa_message_id").unique(),
 
-  direction: text("direction").notNull(), // MessageDirection: "inbound" | "outbound"
-  type: text("type").notNull().default("text"), // MessageType
+  direction: text("direction").notNull(),
+  type: text("type").notNull().default("text"),
 
-  // Content
   content: text("content"),
   mediaUrl: text("media_url"),
   mediaMimeType: text("media_mime_type"),
   templateName: text("template_name"),
-  metadata: text("metadata"), // JSON string for extra data (buttons, location coords, etc.)
+  metadata: text("metadata"),
 
-  // Status tracking
-  status: text("status").notNull().default("pending"), // MessageStatus
+  status: text("status").notNull().default("pending"),
 
-  // Sender info (for outbound messages)
   sentById: text("sent_by_id").references(() => users.id, {
     onDelete: "set null",
   }),
 
-  // AI flags
-  isAiGenerated: integer("is_ai_generated", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  aiSuggestionAccepted: integer("ai_suggestion_accepted", {
-    mode: "boolean",
-  }),
+  isAiGenerated: boolean("is_ai_generated").notNull().default(false),
+  aiSuggestionAccepted: boolean("ai_suggestion_accepted"),
 
-  // Error handling
   errorCode: text("error_code"),
   errorMessage: text("error_message"),
 
-  // Delivery timestamps
-  sentAt: integer("sent_at", { mode: "timestamp" }),
-  deliveredAt: integer("delivered_at", { mode: "timestamp" }),
-  readAt: integer("read_at", { mode: "timestamp" }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  readAt: timestamp("read_at", { withTimezone: true }),
 
-  // Created timestamp
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const messageStatusEvents = sqliteTable("message_status_events", {
+export const messageStatusEvents = pgTable("message_status_events", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -69,13 +56,11 @@ export const messageStatusEvents = sqliteTable("message_status_events", {
     .notNull()
     .references(() => messages.id, { onDelete: "cascade" }),
 
-  status: text("status").notNull(), // MessageStatus
-  timestamp: integer("timestamp", { mode: "timestamp" }).notNull(),
-  rawPayload: text("raw_payload"), // JSON string of the webhook payload
+  status: text("status").notNull(),
+  timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
+  rawPayload: text("raw_payload"),
 
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Message = typeof messages.$inferSelect;

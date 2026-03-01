@@ -1,8 +1,8 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 
-export const kbDocuments = sqliteTable("kb_documents", {
+export const kbDocuments = pgTable("kb_documents", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -12,24 +12,18 @@ export const kbDocuments = sqliteTable("kb_documents", {
     .references(() => tenants.id, { onDelete: "cascade" }),
 
   title: text("title").notNull(),
-  sourceType: text("source_type"), // "file" | "url" | "manual"
+  sourceType: text("source_type"),
   sourceUrl: text("source_url"),
   content: text("content"),
 
   chunkCount: integer("chunk_count").notNull().default(0),
-  status: text("status").notNull().default("processing"), // "processing" | "ready" | "error"
+  status: text("status").notNull().default("processing"),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const kbChunks = sqliteTable("kb_chunks", {
+export const kbChunks = pgTable("kb_chunks", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -44,12 +38,9 @@ export const kbChunks = sqliteTable("kb_chunks", {
 
   content: text("content").notNull(),
   chunkIndex: integer("chunk_index").notNull(),
-  metadata: text("metadata"), // JSON string for embedding vectors, token count, etc.
+  metadata: text("metadata"),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type KbDocument = typeof kbDocuments.$inferSelect;

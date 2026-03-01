@@ -1,10 +1,10 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 import { users } from "./users";
 import { contacts } from "./contacts";
 
-export const auditLogs = sqliteTable("audit_logs", {
+export const auditLogs = pgTable("audit_logs", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -17,20 +17,18 @@ export const auditLogs = sqliteTable("audit_logs", {
     onDelete: "set null",
   }),
 
-  action: text("action").notNull(), // e.g. "conversation.assigned", "message.sent", "contact.updated"
-  resource: text("resource").notNull(), // e.g. "conversation", "message", "contact"
+  action: text("action").notNull(),
+  resource: text("resource").notNull(),
   resourceId: text("resource_id"),
-  details: text("details"), // JSON string with additional context
+  details: text("details"),
 
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
 
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const optEvents = sqliteTable("opt_events", {
+export const optEvents = pgTable("opt_events", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -43,7 +41,7 @@ export const optEvents = sqliteTable("opt_events", {
     .notNull()
     .references(() => contacts.id, { onDelete: "cascade" }),
 
-  type: text("type").notNull(), // OptEventType: "opt_in" | "opt_out"
+  type: text("type").notNull(),
   channel: text("channel").notNull().default("whatsapp"),
   reason: text("reason"),
   evidenceUrl: text("evidence_url"),
@@ -52,9 +50,7 @@ export const optEvents = sqliteTable("opt_events", {
     onDelete: "set null",
   }),
 
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type AuditLog = typeof auditLogs.$inferSelect;

@@ -1,10 +1,10 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 import { contacts } from "./contacts";
 import { users } from "./users";
 
-export const conversations = sqliteTable("conversations", {
+export const conversations = pgTable("conversations", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -21,33 +21,24 @@ export const conversations = sqliteTable("conversations", {
     onDelete: "set null",
   }),
 
-  status: text("status").notNull().default("open"), // ConversationStatus
+  status: text("status").notNull().default("open"),
   subject: text("subject"),
 
-  // Denormalized for fast listing
-  lastMessageAt: integer("last_message_at", { mode: "timestamp" }),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
   lastMessagePreview: text("last_message_preview"),
 
-  // WhatsApp 24h window tracking
-  windowExpiresAt: integer("window_expires_at", { mode: "timestamp" }),
+  windowExpiresAt: timestamp("window_expires_at", { withTimezone: true }),
 
   unreadCount: integer("unread_count").notNull().default(0),
-  isBot: integer("is_bot", { mode: "boolean" }).notNull().default(false),
+  isBot: boolean("is_bot").notNull().default(false),
 
-  // Closure tracking
-  closedAt: integer("closed_at", { mode: "timestamp" }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   closedById: text("closed_by_id").references(() => users.id, {
     onDelete: "set null",
   }),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Conversation = typeof conversations.$inferSelect;

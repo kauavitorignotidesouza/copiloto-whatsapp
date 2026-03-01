@@ -1,14 +1,26 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { neon as neonNetlify } from "@netlify/neon";
+import { neon as neonServerless } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 
-const sqlite = new Database("sqlite.db");
+function getDb() {
+  // Netlify: usa a integração Neon (NETLIFY_DATABASE_URL é definida automaticamente)
+  if (process.env.NETLIFY_DATABASE_URL) {
+    const sql = neonNetlify();
+    return drizzle(sql, { schema });
+  }
 
-// Enable WAL mode for better concurrent read performance
-sqlite.pragma("journal_mode = WAL");
+  // Local: usa DATABASE_URL do .env.local (ex.: connection string do Neon)
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL não está definida. No Netlify, conecte o banco pela integração Neon (netlify db init). Localmente, configure DATABASE_URL no .env.local."
+    );
+  }
+  const sql = neonServerless(connectionString);
+  return drizzle(sql, { schema });
+}
 
-export const db = drizzle(sqlite, { schema });
-export type Database = typeof db;
-
-// Re-export schema for convenience
+export const db = getDb();
+export type Database = ReturnType<typeof getDb>;
 export { schema };

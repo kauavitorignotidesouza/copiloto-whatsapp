@@ -1,8 +1,8 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 
-export const users = sqliteTable("users", {
+export const users = pgTable("users", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -16,19 +16,13 @@ export const users = sqliteTable("users", {
   passwordHash: text("password_hash").notNull(),
   avatarUrl: text("avatar_url"),
 
-  role: text("role").notNull().default("attendant"), // "admin" | "manager" | "attendant"
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  role: text("role").notNull().default("attendant"),
+  isActive: boolean("is_active").notNull().default(true),
 
-  lastLoginAt: integer("last_login_at", { mode: "timestamp" }),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type User = typeof users.$inferSelect;

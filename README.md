@@ -20,6 +20,38 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Banco de dados (Neon + Netlify)
+
+O projeto usa **Neon** (PostgreSQL) com suporte à **integração oficial da Netlify**.
+
+### Na Netlify (recomendado)
+
+1. No painel do site: **Integrations** → busque **Neon** → **Add integration** (ou **Connect**).
+2. Siga o fluxo para conectar/criar o banco. A Netlify define automaticamente a variável **`NETLIFY_DATABASE_URL`**.
+3. O código usa `import { neon } from '@netlify/neon'` e `neon()` — não é preciso configurar URL manualmente.
+
+Alternativa via CLI: `netlify db init` (com Netlify CLI configurado).
+
+### Local (desenvolvimento)
+
+1. Crie `.env.local` com a connection string do Neon:
+   ```env
+   DATABASE_URL=postgresql://user:password@ep-xxx.region.aws.neon.tech/neondb?sslmode=require
+   ```
+2. Pegue a URL no projeto em [neon.tech](https://neon.tech).
+
+### Migrações
+
+Depois de ter o banco configurado (Netlify ou local com `DATABASE_URL`):
+
+```bash
+npm run db:init
+```
+
+Ou copie o conteúdo de `drizzle/0000_init.sql` e rode no **SQL Editor** do Neon.
+
+Veja `.env.example` para outras variáveis opcionais.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

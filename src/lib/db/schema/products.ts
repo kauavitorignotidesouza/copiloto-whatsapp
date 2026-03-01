@@ -1,10 +1,10 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, real, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 import { contacts } from "./contacts";
 import { conversations } from "./conversations";
 
-export const products = sqliteTable("products", {
+export const products = pgTable("products", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -20,20 +20,14 @@ export const products = sqliteTable("products", {
   currency: text("currency").notNull().default("BRL"),
   imageUrl: text("image_url"),
   category: text("category"),
-  isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
   stockQuantity: integer("stock_quantity"),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const orders = sqliteTable("orders", {
+export const orders = pgTable("orders", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -50,24 +44,18 @@ export const orders = sqliteTable("orders", {
     onDelete: "set null",
   }),
 
-  items: text("items").notNull(), // JSON array of { productId, name, qty, unitPrice }
+  items: text("items").notNull(),
   totalAmount: real("total_amount").notNull(),
   currency: text("currency").notNull().default("BRL"),
 
-  paymentMethod: text("payment_method"), // "pix" | "credit_card" | "boleto" | etc.
-  paymentStatus: text("payment_status").notNull().default("pending"), // "pending" | "paid" | "failed" | "refunded"
+  paymentMethod: text("payment_method"),
+  paymentStatus: text("payment_status").notNull().default("pending"),
   pixCode: text("pix_code"),
 
   notes: text("notes"),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type Product = typeof products.$inferSelect;

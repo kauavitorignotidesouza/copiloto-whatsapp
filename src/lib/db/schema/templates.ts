@@ -1,8 +1,8 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import { createId } from "@paralleldrive/cuid2";
 import { tenants } from "./tenants";
 
-export const waTemplates = sqliteTable("wa_templates", {
+export const waTemplates = pgTable("wa_templates", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => createId()),
@@ -11,29 +11,22 @@ export const waTemplates = sqliteTable("wa_templates", {
     .notNull()
     .references(() => tenants.id, { onDelete: "cascade" }),
 
-  waTemplateId: text("wa_template_id"), // ID returned by the WhatsApp API
+  waTemplateId: text("wa_template_id"),
   name: text("name").notNull(),
   language: text("language").notNull().default("pt_BR"),
-  category: text("category"), // "MARKETING" | "UTILITY" | "AUTHENTICATION"
+  category: text("category"),
 
-  status: text("status").notNull().default("pending"), // TemplateStatus
+  status: text("status").notNull().default("pending"),
 
-  // Template components
-  headerType: text("header_type"), // "text" | "image" | "video" | "document"
+  headerType: text("header_type"),
   headerContent: text("header_content"),
   bodyText: text("body_text"),
   footerText: text("footer_text"),
-  buttons: text("buttons"), // JSON array of button objects
-  exampleValues: text("example_values"), // JSON array of example variable values
+  buttons: text("buttons"),
+  exampleValues: text("example_values"),
 
-  // Timestamps
-  createdAt: integer("created_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date()),
-  updatedAt: integer("updated_at", { mode: "timestamp" })
-    .notNull()
-    .$defaultFn(() => new Date())
-    .$onUpdateFn(() => new Date()),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type WaTemplate = typeof waTemplates.$inferSelect;
