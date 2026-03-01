@@ -29,6 +29,8 @@ import { db } from "@/lib/db";
 import { conversations, contacts } from "@/lib/db/schema";
 import { eq, desc, and, count } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 function getInitials(name: string | null): string {
   if (!name || !name.trim()) return "?";
   return name

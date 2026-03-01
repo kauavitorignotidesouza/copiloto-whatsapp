@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { conversations, contacts } from "@/lib/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 
+export const dynamic = "force-dynamic";
+
 function getInitials(name: string | null): string {
   if (!name || !name.trim()) return "?";
   return name
@@ -77,5 +79,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json({ conversations: list });
+  return NextResponse.json(
+    { conversations: list },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }
