@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { messages, conversations, tenants, contacts } from "@/lib/db/schema";
 import { eq, asc, and } from "drizzle-orm";
 import { sendWhatsAppText } from "@/lib/whatsapp/send-message";
+import { sendEvolutionText } from "@/lib/whatsapp/send-evolution";
 
 export async function GET(
   _request: NextRequest,
@@ -111,17 +112,31 @@ export async function POST(
     })
     .where(eq(conversations.id, conversationId));
 
-  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   const [contact] = await db.select().from(contacts).where(eq(contacts.id, conv.contactId)).limit(1);
 
-  if (tenant?.whatsappAccessToken && tenant?.whatsappPhoneNumberId && contact?.waId) {
-    sendWhatsAppText(tenant.whatsappPhoneNumberId, tenant.whatsappAccessToken, contact.waId, content)
-      .then((result) => {
-        if (!result.success && result.error) {
-          console.error("[WhatsApp send]", result.error);
-        }
-      })
-      .catch((err) => console.error("[WhatsApp send]", err));
+  // Enviar mensagem via WhatsApp (Evolution API primeiro, fallback Meta Cloud API)
+  if (contact?.waId) {
+    const evolutionUrl = process.env.EVOLUTION_API_URL;
+    const evolutionKey = process.env.EVOLUTION_API_KEY;
+
+    if (evolutionUrl && evolutionKey) {
+      // Evolution API (QR code connection)
+      sendEvolutionText(tenantId, contact.waId, content)
+        .then((result) => {
+          if (!result.success) console.error("[Evolution send]", result.error);
+        })
+        .catch((err) => console.error("[Evolution send]", err));
+    } else {
+      // Fallback: Meta Cloud API (official)
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      if (tenant?.whatsappAccessToken && tenant?.whatsappPhoneNumberId) {
+        sendWhatsAppText(tenant.whatsappPhoneNumberId, tenant.whatsappAccessToken, contact.waId, content)
+          .then((result) => {
+            if (!result.success) console.error("[WhatsApp send]", result.error);
+          })
+          .catch((err) => console.error("[WhatsApp send]", err));
+      }
+    }
   }
 
   return NextResponse.json(

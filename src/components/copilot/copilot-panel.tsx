@@ -35,13 +35,15 @@ export function CopilotPanel({ conversationId }: CopilotPanelProps) {
 
   useEffect(() => {
     if (!copilotEnabled || !conversationId) {
-      setIntent(null);
-      setSuggestions([]);
-      setError(null);
       return;
     }
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setError(null);
+      }
+    });
     fetch("/api/copilot/suggestions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -52,15 +54,20 @@ export function CopilotPanel({ conversationId }: CopilotPanelProps) {
         return res.json();
       })
       .then((data) => {
+        if (cancelled) return;
         setIntent(data.intent ?? "geral");
         setConfidence(typeof data.confidence === "number" ? data.confidence : 0.5);
         setSuggestions(data.suggestions ?? []);
       })
       .catch((err) => {
+        if (cancelled) return;
         setError(err.message || "Erro ao gerar sugestões");
         setSuggestions([]);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [copilotEnabled, conversationId]);
 
   return (

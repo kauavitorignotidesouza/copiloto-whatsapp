@@ -10,8 +10,6 @@ import {
   ChevronRight,
   Bot,
   ShoppingCart,
-  CreditCard,
-  UserCheck,
 } from "lucide-react";
 import {
   Card,

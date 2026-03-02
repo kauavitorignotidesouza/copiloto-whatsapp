@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac, timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { tenants, contacts, conversations, messages } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -6,6 +7,19 @@ import { createId } from "@paralleldrive/cuid2";
 import { calculateWindowExpiry } from "@/lib/whatsapp/24h-window";
 
 const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || "change-me";
+const appSecret = process.env.META_APP_SECRET || process.env.APP_SECRET;
+
+function verifyMetaSignature(rawBody: string, signatureHeader: string | null): boolean {
+  if (!appSecret || !signatureHeader?.startsWith("sha256=")) return true;
+  const signature = signatureHeader.slice(7);
+  const expected = createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+  if (signature.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -22,16 +36,28 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const rawBody = await request.text();
+    const signatureHeader = request.headers.get("x-hub-signature-256");
+    if (!verifyMetaSignature(rawBody, signatureHeader)) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
 
-    const entries = body.entry ?? [];
+    const entries = Array.isArray(body.entry) ? body.entry : [];
     for (const entry of entries) {
-      const changes = entry.changes ?? [];
+      const changes = Array.isArray((entry as Record<string, unknown>).changes)
+        ? ((entry as Record<string, unknown>).changes as unknown[])
+        : [];
       for (const change of changes) {
-        if (change.field !== "messages") continue;
+        if ((change as Record<string, unknown>).field !== "messages") continue;
 
-        const value = change.value;
-        const metadata = value.metadata ?? {};
+        const value = (change as Record<string, unknown>).value as Record<string, unknown>;
+        const metadata = (value.metadata ?? {}) as Record<string, unknown>;
         const phoneNumberId = String(metadata.phone_number_id ?? "");
 
         if (!phoneNumberId) continue;
@@ -44,17 +70,22 @@ export async function POST(request: NextRequest) {
 
         if (!tenant) continue;
 
-        const incomingMessages = value.messages ?? [];
-        const profileName = value.contacts?.[0]?.profile?.name ?? null;
+        const incomingMessages = Array.isArray(value.messages) ? value.messages : [];
+        const contactsList = Array.isArray(value.contacts) ? value.contacts : [];
+        const profileName = (contactsList[0] as Record<string, unknown>)?.profile as Record<string, unknown> | undefined;
+        const profileNameStr = (profileName?.name ?? null) as string | null;
 
         for (const msg of incomingMessages) {
-          const fromWaId = String(msg.from ?? "");
-          const waMessageId = msg.id ?? null;
-          const type = (msg.type ?? "text") as string;
-          const textBody = msg.text?.body ?? msg.caption ?? "";
+          const msgObj = msg as Record<string, unknown>;
+          const fromWaId = String(msgObj.from ?? "");
+          const waMessageId = msgObj.id as string | null ?? null;
+          const type = (msgObj.type ?? "text") as string;
+          const textObj = msgObj.text as Record<string, unknown> | undefined;
+          const caption = msgObj.caption as string | undefined;
+          const textBody = (textObj?.body ?? caption) as string;
           const content = type === "text" ? textBody : type === "image" || type === "video" || type === "document" ? `[${type}] ${textBody || "(sem legenda)"}`.trim() : `[${type}]`;
 
-          let [contact] = await db
+          const [contact] = await db
             .select()
             .from(contacts)
             .where(and(eq(contacts.tenantId, tenant.id), eq(contacts.waId, fromWaId)))
@@ -63,8 +94,8 @@ export async function POST(request: NextRequest) {
           let contactId: string;
           if (contact) {
             contactId = contact.id;
-            if (profileName && contact.profileName !== profileName) {
-              await db.update(contacts).set({ profileName, updatedAt: new Date() }).where(eq(contacts.id, contactId));
+            if (profileNameStr && contact.profileName !== profileNameStr) {
+              await db.update(contacts).set({ profileName: profileNameStr, updatedAt: new Date() }).where(eq(contacts.id, contactId));
             }
           } else {
             contactId = createId();
@@ -72,7 +103,7 @@ export async function POST(request: NextRequest) {
               id: contactId,
               tenantId: tenant.id,
               waId: fromWaId,
-              profileName: profileName ?? undefined,
+              profileName: profileNameStr ?? undefined,
             });
           }
 
@@ -121,13 +152,14 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const statuses = value.statuses ?? [];
+        const statuses = Array.isArray(value.statuses) ? value.statuses : [];
         for (const status of statuses) {
-          const msgId = status.id;
-          const statusValue = status.status;
+          const s = status as Record<string, unknown>;
+          const msgId = String(s.id ?? "");
+          const statusValue = s.status;
           const [existingMsg] = await db.select().from(messages).where(eq(messages.waMessageId, msgId)).limit(1);
           if (existingMsg) {
-            await db.update(messages).set({ status: statusValue }).where(eq(messages.id, existingMsg.id));
+            await db.update(messages).set({ status: String(statusValue) }).where(eq(messages.id, existingMsg.id));
           }
         }
       }

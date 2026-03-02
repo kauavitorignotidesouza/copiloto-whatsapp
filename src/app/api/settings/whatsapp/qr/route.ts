@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth/auth";
 import QRCode from "qrcode";
 import { sanitizeInstanceName } from "@/lib/whatsapp/evolution-util";
@@ -57,10 +57,12 @@ async function setWebhookIfConfigured(
         }),
       }
     );
-  } catch (_) {}
+  } catch {
+    // ignore
+  }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -171,13 +173,15 @@ export async function GET(request: NextRequest) {
 }
 
 async function qrFromResponse(data: Record<string, unknown>): Promise<string | null> {
-  let base64 = (data.base64 as string) ?? (data.qrcode as Record<string, unknown>)?.base64 as string | undefined;
+  const base64 = (data.base64 as string) ?? (data.qrcode as Record<string, unknown>)?.base64 as string | undefined;
   if (base64) return base64;
   const code = data.code as string | undefined;
   if (code) {
     try {
       return await QRCode.toDataURL(code, { margin: 2, width: 280 });
-    } catch (_) {}
+    } catch {
+      // ignore
+    }
   }
   return null;
 }

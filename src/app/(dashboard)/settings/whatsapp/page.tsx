@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { cn } from "@/lib/utils";
 import {
   Wifi,
@@ -55,6 +56,10 @@ export default function WhatsAppSettingsPage() {
   } | null>(null);
 
   const [evolutionConnected, setEvolutionConnected] = useState<boolean | null>(null);
+  const [webhookInput, setWebhookInput] = useState("");
+  const [webhookCurrent, setWebhookCurrent] = useState<string | null>(null);
+  const [webhookSaving, setWebhookSaving] = useState(false);
+  const [webhookMsg, setWebhookMsg] = useState<"success" | "error" | null>(null);
 
   const webhookUrl =
     (typeof window !== "undefined" ? window.location.origin : "") + "/api/webhooks/whatsapp";
@@ -85,6 +90,18 @@ export default function WhatsAppSettingsPage() {
     checkEvolution();
     const id = setInterval(checkEvolution, 5000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/settings/whatsapp/webhook")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.url) {
+          setWebhookCurrent(data.url);
+          setWebhookInput(data.url.replace(/\/api\/webhooks\/evolution$/, ""));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const isConnected = Boolean(phoneNumberId.trim() && (accessToken.trim() || hasAccessToken));
@@ -124,6 +141,29 @@ export default function WhatsAppSettingsPage() {
       setSaveMessage("error");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSaveWebhook() {
+    setWebhookSaving(true);
+    setWebhookMsg(null);
+    try {
+      const base = webhookInput.trim().replace(/\/$/, "");
+      if (!base) throw new Error("URL vazia");
+      const fullUrl = `${base}/api/webhooks/evolution`;
+      const res = await fetch("/api/settings/whatsapp/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: fullUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao salvar");
+      setWebhookCurrent(fullUrl);
+      setWebhookMsg("success");
+    } catch {
+      setWebhookMsg("error");
+    } finally {
+      setWebhookSaving(false);
     }
   }
 
@@ -450,10 +490,13 @@ export default function WhatsAppSettingsPage() {
               )}
               {qrData?.base64 && (
                 <div className="flex flex-col items-center gap-3">
-                  <img
+                  <Image
                     src={qrData.base64}
                     alt="QR Code WhatsApp"
-                    className="rounded-lg border bg-white p-2 max-w-[280px]"
+                    width={280}
+                    height={280}
+                    unoptimized
+                    className="rounded-lg border bg-white p-2 max-w-[280px] h-auto"
                   />
                   <p className="text-sm text-muted-foreground text-center">
                     Abra o WhatsApp no celular → Aparelhos conectados → Conectar um aparelho e escaneie o QR acima.
@@ -485,13 +528,54 @@ export default function WhatsAppSettingsPage() {
               </Button>
             </CardContent>
           </Card>
-          <Alert>
-            <Info className="h-4 w-4" />
-            <AlertTitle>Para os chats aparecerem no Inbox</AlertTitle>
-            <AlertDescription>
-              O painel precisa receber as mensagens da Evolution API. Se você estiver rodando localmente (localhost), configure um túnel (ex.: ngrok) e defina <strong>EVOLUTION_WEBHOOK_BASE</strong> no .env.local com a URL pública. Se o painel estiver na Netlify, defina <strong>EVOLUTION_WEBHOOK_BASE</strong> nas variáveis de ambiente com a URL do site (ex.: https://seu-site.netlify.app). Assim, ao gerar o QR, o webhook é configurado e as conversas passam a aparecer aqui.
-            </AlertDescription>
-          </Alert>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Wifi className="h-5 w-5" />
+                Webhook (receber mensagens)
+              </CardTitle>
+              <CardDescription>
+                Para as mensagens do WhatsApp aparecerem no Inbox, configure a URL pública do seu painel. Se estiver na Vercel, use a URL do deploy (ex.: https://seu-app.vercel.app).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="webhookBase">URL pública do painel</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="webhookBase"
+                    placeholder="https://seu-app.vercel.app"
+                    value={webhookInput}
+                    onChange={(e) => setWebhookInput(e.target.value)}
+                    className="font-mono"
+                  />
+                  <Button
+                    onClick={handleSaveWebhook}
+                    disabled={webhookSaving || !webhookInput.trim()}
+                    className="gap-2 shrink-0"
+                  >
+                    {webhookSaving ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Salvar
+                  </Button>
+                </div>
+                {webhookCurrent && (
+                  <p className="text-xs text-muted-foreground">
+                    Webhook atual: <code className="bg-muted px-1 rounded">{webhookCurrent}</code>
+                  </p>
+                )}
+                {webhookMsg === "success" && (
+                  <p className="text-sm text-green-600 dark:text-green-400">Webhook configurado com sucesso!</p>
+                )}
+                {webhookMsg === "error" && (
+                  <p className="text-sm text-destructive">Erro ao configurar webhook. Gere o QR Code primeiro, depois configure o webhook.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

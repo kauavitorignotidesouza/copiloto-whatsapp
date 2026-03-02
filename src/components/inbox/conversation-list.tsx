@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -47,8 +47,9 @@ export function ConversationList() {
   const [activeFilter, setActiveFilter] = useState<string>("all");
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
+  const fetchConversations = useCallback(() => {
     const params = new URLSearchParams();
     if (activeFilter !== "all") params.set("status", activeFilter);
     if (searchQuery.trim()) params.set("search", searchQuery.trim());
@@ -61,6 +62,15 @@ export function ConversationList() {
       .catch(() => setConversations([]))
       .finally(() => setLoading(false));
   }, [activeFilter, searchQuery]);
+
+  useEffect(() => {
+    fetchConversations();
+    // Polling a cada 5s para novas mensagens
+    intervalRef.current = setInterval(fetchConversations, 5000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchConversations]);
 
   const filtered = conversations.filter((c) => {
     if (searchQuery.trim() && !c.contactName.toLowerCase().includes(searchQuery.toLowerCase()) && !c.contactPhone.includes(searchQuery)) return false;

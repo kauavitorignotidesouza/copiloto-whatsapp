@@ -1,35 +1,18 @@
-import { neon as neonNetlify } from "@netlify/neon";
-import { neon as neonServerless } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
 
-let _db: ReturnType<typeof createDb> | null = null;
-
-function createDb() {
-  if (process.env.NETLIFY_DATABASE_URL) {
-    const sql = neonNetlify();
-    return drizzle(sql, { schema });
-  }
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error(
-      "DATABASE_URL não está definida. No Netlify, conecte o banco pela integração Neon. Localmente, configure DATABASE_URL no .env.local."
-    );
-  }
-  const sql = neonServerless(connectionString);
-  return drizzle(sql, { schema });
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error(
+    "DATABASE_URL não está definida. Configure no .env.local com a connection string do Supabase."
+  );
 }
 
-function getDb() {
-  if (!_db) _db = createDb();
-  return _db;
-}
+// prepare: false é necessário para Supabase em modo transaction/pooler
+// ssl: 'require' para Supabase pooler
+const client = postgres(connectionString, { prepare: false, ssl: "require" });
+export const db = drizzle(client, { schema });
 
-export const db = new Proxy({} as ReturnType<typeof createDb>, {
-  get(_, prop) {
-    return (getDb() as unknown as Record<string, unknown>)[prop as string];
-  },
-});
-
-export type Database = ReturnType<typeof createDb>;
+export type Database = typeof db;
 export { schema };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { Phone, MoreVertical, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +59,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
       .catch(() => {});
   }, [conversationId]);
 
-  useEffect(() => {
+  const fetchMessages = useCallback(() => {
     fetch(`/api/conversations/${conversationId}/messages`)
       .then((res) => (res.ok ? res.json() : { messages: [] }))
       .then((data) => {
@@ -67,11 +67,24 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
           ...m,
           createdAt: m.createdAt ? new Date(m.createdAt) : new Date(),
         }));
-        setMessages(list);
+        setMessages((prev) => {
+          // Só atualiza se mudou o número de mensagens (evita re-render desnecessário)
+          if (prev.length !== list.length) return list;
+          return prev;
+        });
       })
-      .catch(() => setMessages([]))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [conversationId]);
+
+  useEffect(() => {
+    setLoading(true);
+    setMessages([]);
+    fetchMessages();
+    // Polling a cada 3s para novas mensagens (simula real-time)
+    const interval = setInterval(fetchMessages, 3000);
+    return () => clearInterval(interval);
+  }, [fetchMessages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

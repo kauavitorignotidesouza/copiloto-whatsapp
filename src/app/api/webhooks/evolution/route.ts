@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     const messageType = (data?.messageType as string) ?? "text";
     const profileName = data?.pushName ?? null;
 
-    let [contact] = await db
+    const [contact] = await db
       .select()
       .from(contacts)
       .where(and(eq(contacts.tenantId, tenant.id), eq(contacts.waId, waId)))
