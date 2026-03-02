@@ -17,7 +17,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   return (
     <div className="flex h-full">
-      <nav className="w-56 border-r bg-card p-4 space-y-1 shrink-0">
+      <nav className="hidden md:block w-48 border-r bg-card p-4 space-y-1 shrink-0">
         <h2 className="text-sm font-semibold text-muted-foreground mb-3 px-2">
           Configurações
         </h2>

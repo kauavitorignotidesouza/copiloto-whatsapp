@@ -72,7 +72,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="companyName">Nome da empresa</Label>
               <Input
@@ -91,7 +91,7 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email de contato</Label>
               <Input
@@ -130,7 +130,7 @@ export default function SettingsPage() {
               onChange={(e) => setStreet(e.target.value)}
             />
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="city">Cidade</Label>
               <Input
@@ -175,7 +175,7 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="timezone">Fuso horário</Label>
               <Select value={timezone} onValueChange={setTimezone}>
