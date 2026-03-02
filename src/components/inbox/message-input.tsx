@@ -9,9 +9,10 @@ interface MessageInputProps {
   onSend: (content: string) => void;
   windowExpired?: boolean;
   disabled?: boolean;
+  onTemplateClick?: () => void;
 }
 
-export function MessageInput({ onSend, windowExpired = false, disabled = false }: MessageInputProps) {
+export function MessageInput({ onSend, windowExpired = false, disabled = false, onTemplateClick }: MessageInputProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +46,12 @@ export function MessageInput({ onSend, windowExpired = false, disabled = false }
         <div className="flex items-center gap-2 px-4 py-2 bg-yellow-50 dark:bg-yellow-950/30 border-b text-xs text-yellow-700 dark:text-yellow-400">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>Janela de 24h expirada. Use um modelo aprovado para reengajar.</span>
-          <Button variant="outline" size="sm" className="ml-auto h-6 text-xs">
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto h-6 text-xs"
+            onClick={onTemplateClick}
+          >
             <FileText className="h-3 w-3 mr-1" />
             Modelos
           </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   Search,
   Plus,
@@ -51,6 +51,7 @@ interface KBDocument {
   chunks: number;
   size: string;
   uploadedAt: string;
+  updatedAt: Date;
   status: DocStatus;
 }
 
@@ -63,7 +64,7 @@ interface KBChunk {
 // Mock data
 // ---------------------------------------------------------------------------
 
-const mockDocuments: KBDocument[] = [
+const initialDocuments: KBDocument[] = [
   {
     id: "kb1",
     name: "FAQ - Perguntas Frequentes",
@@ -71,6 +72,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 45,
     size: "12 KB",
     uploadedAt: "ha 2 dias",
+    updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
     status: "processed",
   },
   {
@@ -80,6 +82,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 128,
     size: "45 KB",
     uploadedAt: "ha 1 semana",
+    updatedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
     status: "processed",
   },
   {
@@ -89,6 +92,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 23,
     size: "8 KB",
     uploadedAt: "ha 3 dias",
+    updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
     status: "processed",
   },
   {
@@ -98,6 +102,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 67,
     size: "22 KB",
     uploadedAt: "ha 5 dias",
+    updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
     status: "processed",
   },
   {
@@ -107,6 +112,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 34,
     size: "15 KB",
     uploadedAt: "ha 1 dia",
+    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
     status: "processed",
   },
   {
@@ -116,6 +122,7 @@ const mockDocuments: KBDocument[] = [
     chunks: 0,
     size: "5 KB",
     uploadedAt: "ha 10 min",
+    updatedAt: new Date(Date.now() - 10 * 60 * 1000),
     status: "processing",
   },
 ];
@@ -158,23 +165,44 @@ const typeBadgeClasses: Record<DocType, string> = {
   outro: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
 };
 
+function relativeTime(date: Date): string {
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  const diffWeek = Math.floor(diffDay / 7);
+  const diffMonth = Math.floor(diffDay / 30);
+
+  if (diffSec < 60) return "agora mesmo";
+  if (diffMin < 60) return `ha ${diffMin} min`;
+  if (diffHour < 24) return `ha ${diffHour} hora${diffHour > 1 ? "s" : ""}`;
+  if (diffDay < 7) return `ha ${diffDay} dia${diffDay > 1 ? "s" : ""}`;
+  if (diffWeek < 5) return `ha ${diffWeek} semana${diffWeek > 1 ? "s" : ""}`;
+  return `ha ${diffMonth} mes${diffMonth > 1 ? "es" : ""}`;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export function KBManager() {
+  const [documents, setDocuments] = useState<KBDocument[]>(initialDocuments);
   const [search, setSearch] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [chunksOpen, setChunksOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<KBDocument | null>(null);
   const [uploadTitle, setUploadTitle] = useState("");
   const [uploadType, setUploadType] = useState<DocType | "">("");
+  const [selectedFileName, setSelectedFileName] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [chunksPage, setChunksPage] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const totalChunks = mockDocuments.reduce((acc, d) => acc + d.chunks, 0);
+  const totalChunks = documents.reduce((acc, d) => acc + d.chunks, 0);
 
-  const filtered = mockDocuments.filter(
+  const filtered = documents.filter(
     (d) =>
       d.name.toLowerCase().includes(search.toLowerCase()) ||
       typeLabels[d.type].toLowerCase().includes(search.toLowerCase()),
@@ -196,7 +224,82 @@ export function KBManager() {
   function resetUploadForm() {
     setUploadTitle("");
     setUploadType("");
+    setSelectedFileName("");
     setDragOver(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  const handleFileSelected = useCallback((file: File) => {
+    setSelectedFileName(file.name);
+    // Auto-fill title from filename if title is empty
+    if (!uploadTitle) {
+      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+      setUploadTitle(nameWithoutExt);
+    }
+  }, [uploadTitle]);
+
+  function handleProcessAndIndex() {
+    if (!uploadTitle || !uploadType) return;
+
+    const newDoc: KBDocument = {
+      id: `kb-${Date.now()}`,
+      name: uploadTitle,
+      type: uploadType as DocType,
+      chunks: 0,
+      size: selectedFileName ? "—" : "0 KB",
+      uploadedAt: "agora mesmo",
+      updatedAt: new Date(),
+      status: "processing",
+    };
+
+    setDocuments((prev) => [newDoc, ...prev]);
+    setUploadOpen(false);
+    resetUploadForm();
+
+    // Simulate processing: after 2 seconds, mark as processed with random chunks
+    setTimeout(() => {
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === newDoc.id
+            ? {
+                ...d,
+                status: "processed" as DocStatus,
+                chunks: Math.floor(Math.random() * 80) + 10,
+                updatedAt: new Date(),
+              }
+            : d,
+        ),
+      );
+    }, 2000);
+  }
+
+  function handleReprocess(docId: string) {
+    setDocuments((prev) =>
+      prev.map((d) =>
+        d.id === docId ? { ...d, status: "processing" as DocStatus, updatedAt: new Date() } : d,
+      ),
+    );
+
+    setTimeout(() => {
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId
+            ? { ...d, status: "processed" as DocStatus, updatedAt: new Date() }
+            : d,
+        ),
+      );
+    }, 2000);
+  }
+
+  function handleDelete(docId: string, docName: string) {
+    const confirmed = window.confirm(
+      `Tem certeza que deseja excluir "${docName}"? Esta acao nao pode ser desfeita.`,
+    );
+    if (confirmed) {
+      setDocuments((prev) => prev.filter((d) => d.id !== docId));
+    }
   }
 
   return (
@@ -212,7 +315,7 @@ export function KBManager() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Documentos</p>
-              <p className="text-xl font-bold">{mockDocuments.length}</p>
+              <p className="text-xl font-bold">{documents.length}</p>
             </div>
           </CardContent>
         </Card>
@@ -236,7 +339,16 @@ export function KBManager() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Ultima atualizacao</p>
-              <p className="text-xl font-bold">ha 2 horas</p>
+              <p className="text-xl font-bold">
+                {documents.length > 0
+                  ? relativeTime(
+                      documents.reduce((latest, d) =>
+                        d.updatedAt > latest ? d.updatedAt : latest,
+                        documents[0].updatedAt,
+                      ),
+                    )
+                  : "—"}
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -281,6 +393,18 @@ export function KBManager() {
             </DialogHeader>
 
             <div className="space-y-4 py-2">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.pdf,.md,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileSelected(file);
+                }}
+              />
+
               {/* Drag & drop zone */}
               <div
                 className={cn(
@@ -297,19 +421,39 @@ export function KBManager() {
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOver(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) handleFileSelected(file);
                 }}
               >
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
                   <Upload className="h-5 w-5 text-muted-foreground" />
                 </div>
-                <p className="text-sm font-medium">
-                  Arraste e solte o arquivo aqui
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  ou selecione um arquivo
-                </p>
-                <Button variant="outline" size="sm" className="mt-1">
-                  Selecionar Arquivo
+                {selectedFileName ? (
+                  <>
+                    <p className="text-sm font-medium text-primary">
+                      {selectedFileName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Arquivo selecionado
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium">
+                      Arraste e solte o arquivo aqui
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      ou selecione um arquivo
+                    </p>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {selectedFileName ? "Trocar Arquivo" : "Selecionar Arquivo"}
                 </Button>
                 <p className="text-[11px] text-muted-foreground">
                   Formatos aceitos: .txt, .pdf, .md, .csv
@@ -355,7 +499,10 @@ export function KBManager() {
               >
                 Cancelar
               </Button>
-              <Button onClick={() => setUploadOpen(false)}>
+              <Button
+                onClick={handleProcessAndIndex}
+                disabled={!uploadTitle || !uploadType}
+              >
                 <Database className="h-4 w-4 mr-1.5" />
                 Processar e Indexar
               </Button>
@@ -463,14 +610,22 @@ export function KBManager() {
                   <Eye className="h-3.5 w-3.5 mr-1" />
                   Ver chunks
                 </Button>
-                <Button variant="ghost" size="sm" className="h-8 text-xs">
-                  <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={doc.status === "processing"}
+                  onClick={() => handleReprocess(doc.id)}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5 mr-1", doc.status === "processing" && "animate-spin")} />
                   Reprocessar
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  disabled={doc.status === "processing"}
+                  onClick={() => handleDelete(doc.id, doc.name)}
                 >
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                   Excluir

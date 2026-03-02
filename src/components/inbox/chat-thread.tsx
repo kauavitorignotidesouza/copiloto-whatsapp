@@ -1,10 +1,35 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Phone, MoreVertical, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  Phone,
+  MoreVertical,
+  X,
+  Archive,
+  CheckCircle,
+  RotateCcw,
+  Trash2,
+  MessageSquareText,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { MessageBubble } from "./message-bubble";
 import { MessageInput } from "./message-input";
 import { WindowTimer } from "./window-timer";
@@ -33,10 +58,18 @@ interface ChatThreadProps {
   conversationId: string;
 }
 
+const QUICK_REPLY_TEMPLATES = [
+  "Ola! Como posso ajuda-lo hoje?",
+  "Obrigado pelo contato! Estamos verificando e retornaremos em breve.",
+  "Seu pedido foi atualizado! Precisa de mais alguma informacao?",
+];
+
 export function ChatThread({ conversationId }: ChatThreadProps) {
+  const router = useRouter();
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<MessageForBubble[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showTemplates, setShowTemplates] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,7 +101,6 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
           createdAt: m.createdAt ? new Date(m.createdAt) : new Date(),
         }));
         setMessages((prev) => {
-          // Só atualiza se mudou o número de mensagens (evita re-render desnecessário)
           if (prev.length !== list.length) return list;
           return prev;
         });
@@ -81,7 +113,6 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     setLoading(true);
     setMessages([]);
     fetchMessages();
-    // Polling a cada 3s para novas mensagens (simula real-time)
     const interval = setInterval(fetchMessages, 3000);
     return () => clearInterval(interval);
   }, [fetchMessages]);
@@ -106,8 +137,67 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
         setMessages((prev) => [...prev, m]);
       }
     } catch {
-      // mantém UI; poderia mostrar toast de erro
+      toast.error("Erro ao enviar mensagem.");
     }
+  };
+
+  const handleUpdateStatus = async (status: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error ?? "Erro ao atualizar conversa.");
+        return;
+      }
+
+      setConversation((prev) => (prev ? { ...prev, status } : prev));
+
+      const labels: Record<string, string> = {
+        closed: "Conversa marcada como resolvida.",
+        open: "Conversa reaberta.",
+        archived: "Conversa arquivada.",
+      };
+      toast.success(labels[status] ?? "Status atualizado.");
+
+      if (status === "closed" || status === "archived") {
+        router.push("/inbox");
+      }
+    } catch {
+      toast.error("Erro ao atualizar conversa.");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm("Tem certeza que deseja excluir esta conversa? Esta acao nao pode ser desfeita.")) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error ?? "Erro ao excluir conversa.");
+        return;
+      }
+
+      toast.success("Conversa excluida.");
+      router.push("/inbox");
+    } catch {
+      toast.error("Erro ao excluir conversa.");
+    }
+  };
+
+  const handleTemplateSend = (text: string) => {
+    setShowTemplates(false);
+    handleSend(text);
   };
 
   if (loading && messages.length === 0) {
@@ -121,7 +211,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
   if (!conversation) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        Conversa não encontrada.
+        Conversa nao encontrada.
       </div>
     );
   }
@@ -134,6 +224,7 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     open: "Aberta",
     waiting: "Aguardando",
     closed: "Fechada",
+    archived: "Arquivada",
   };
 
   return (
@@ -162,13 +253,42 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="text-xs h-8">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs h-8"
+            onClick={() => handleUpdateStatus("closed")}
+          >
             <X className="h-3.5 w-3.5 mr-1" />
             Fechar
           </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <MoreVertical className="h-4 w-4" />
-          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleUpdateStatus("closed")}>
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Marcar como resolvida
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleUpdateStatus("open")}>
+                <RotateCcw className="h-4 w-4 mr-2" />
+                Reabrir conversa
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleUpdateStatus("archived")}>
+                <Archive className="h-4 w-4 mr-2" />
+                Arquivar
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleDelete}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Excluir conversa
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -193,7 +313,35 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
         </div>
       </ScrollArea>
 
-      <MessageInput onSend={handleSend} windowExpired={windowExpired} />
+      <MessageInput
+        onSend={handleSend}
+        windowExpired={windowExpired}
+        onTemplateClick={() => setShowTemplates(true)}
+      />
+
+      <Dialog open={showTemplates} onOpenChange={setShowTemplates}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Respostas rapidas</DialogTitle>
+            <DialogDescription>
+              Selecione um modelo para enviar como mensagem.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 pt-2">
+            {QUICK_REPLY_TEMPLATES.map((template, index) => (
+              <button
+                key={index}
+                type="button"
+                className="flex items-start gap-3 rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent"
+                onClick={() => handleTemplateSend(template)}
+              >
+                <MessageSquareText className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+                <span>{template}</span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
